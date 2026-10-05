@@ -102,6 +102,21 @@ def main() -> None:
 
     print(f"Transcribing: {video_path}" + (f" (offset {args.offset}s)" if args.offset else ""))
 
+    # Phrases Whisper commonly hallucinates during silence.
+    HALLUCINATED_PHRASES = {
+        "thank you",
+        "thanks for watching",
+        "thank you for watching",
+        "thank you very much",
+        "thanks",
+        "bye",
+        "bye bye",
+        "you",
+        ".",
+        ",",
+        "...",
+    }
+
     transcribe_options: dict = {
         # Disabling conditioning on previous text prevents a hallucinated phrase
         # in one chunk from being "suggested" to the next chunk.
@@ -118,7 +133,18 @@ def main() -> None:
     if tmp_audio is not None:
         tmp_audio.unlink(missing_ok=True)
 
-    text = result["text"].strip()
+    # Filter segments individually: skip high no-speech-probability segments
+    # and known hallucinated filler phrases that Whisper emits during silence.
+    kept_segments = []
+    for seg in result.get("segments", []):
+        if seg.get("no_speech_prob", 0.0) >= args.no_speech_threshold:
+            continue
+        seg_text = seg["text"].strip()
+        if seg_text.lower().rstrip(".,!? ") in HALLUCINATED_PHRASES:
+            continue
+        kept_segments.append(seg_text)
+
+    text = " ".join(kept_segments).strip()
 
     transcript_path = output_directory / f"{video_path.stem}.txt"
     transcript_path.write_text(text, encoding="utf-8")
