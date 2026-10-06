@@ -1,29 +1,9 @@
 import argparse
-import subprocess
-import tempfile
 from pathlib import Path
 
 import whisper
 
-
-def extract_audio_segment(video_path: Path, offset_seconds: int) -> Path:
-    """Extract audio from video starting at offset_seconds into a temp WAV file."""
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    tmp.close()
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(offset_seconds),
-        "-i", str(video_path),
-        "-vn",                  # drop video
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",         # Whisper expects 16 kHz
-        "-ac", "1",             # mono
-        tmp.name,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed:\n{result.stderr}")
-    return Path(tmp.name)
+from audio_extract import extract_mp3
 
 
 def main() -> None:
@@ -87,23 +67,8 @@ def main() -> None:
     output_directory = Path("output")
     output_directory.mkdir(exist_ok=True)
 
-    # Extract audio segment if an offset was requested.
-    tmp_audio: Path | None = None
-    audio_source: str
-    if args.offset > 0:
-        print(f"Extracting audio from {args.offset}s offset …")
-        tmp_audio = extract_audio_segment(video_path, args.offset)
-        audio_source = str(tmp_audio)
-    else:
-        audio_source = str(video_path)
-
-    print(f"Loading Whisper model: {args.model}")
-    model = whisper.load_model(args.model)
-
-    print(f"Transcribing: {video_path}" + (f" (offset {args.offset}s)" if args.offset else ""))
-
     # Phrases Whisper commonly hallucinates during silence.
-    HALLUCINATED_PHRASES = {
+    hallucinated_phrases = {
         "thank you",
         "thanks for watching",
         "thank you for watching",
@@ -127,10 +92,18 @@ def main() -> None:
     if args.language:
         transcribe_options["language"] = args.language
 
-    result = model.transcribe(audio_source, **transcribe_options)
-
-    # Clean up temp file if we created one.
-    if tmp_audio is not None:
+    print(f"Converting to MP3: {video_path}")
+    tmp_audio = extract_mp3(video_path, args.offset)
+    try:
+        print(f"MP3 ready: {tmp_audio.stat().st_size / 1_048_576:.1f} MB")
+        print(f"Loading Whisper model: {args.model}")
+        model = whisper.load_model(args.model)
+        print(
+            f"Transcribing: {video_path}"
+            + (f" (offset {args.offset}s)" if args.offset else "")
+        )
+        result = model.transcribe(str(tmp_audio), **transcribe_options)
+    finally:
         tmp_audio.unlink(missing_ok=True)
 
     # Filter segments individually: skip high no-speech-probability segments
@@ -140,7 +113,7 @@ def main() -> None:
         if seg.get("no_speech_prob", 0.0) >= args.no_speech_threshold:
             continue
         seg_text = seg["text"].strip()
-        if seg_text.lower().rstrip(".,!? ") in HALLUCINATED_PHRASES:
+        if seg_text.lower().rstrip(".,!? ") in hallucinated_phrases:
             continue
         kept_segments.append(seg_text)
 

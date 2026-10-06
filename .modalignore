@@ -1,0 +1,8 @@
+.venv/
+input/
+output/
+__pycache__/
+*.mkv
+*.mp4
+*.wav
+*.opus

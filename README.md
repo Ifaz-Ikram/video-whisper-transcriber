@@ -341,28 +341,30 @@ Use the exact filenames shown by:
 find input -maxdepth 1 -type f
 ```
 
+`transcribe.py` and `modal_transcribe.py` convert the video to a temporary 16 kHz mono MP3 before transcription, then delete that MP3.
+
+## Free GPU: Colab and Kaggle
+
+Long recordings are slow on CPU. These notebooks run faster-whisper `large-v3` on the free T4 (or a Kaggle P100).
+
+### Google Colab
+
+1. Upload `notebooks/colab_transcribe.ipynb` to [Colab](https://colab.research.google.com/).
+2. Runtime → Change runtime type → T4 GPU.
+3. For a long video, put it in Google Drive and set `VIDEO` to that path. Leave `VIDEO` empty to upload a smaller file.
+4. Run all cells. The transcript downloads when the run finishes.
+
+### Kaggle
+
+1. Upload `notebooks/kaggle_transcribe.ipynb` as a notebook.
+2. Settings → Accelerator → GPU.
+3. Settings → Internet → On.
+4. Add the video as a dataset input. Set `VIDEO` if more than one media file is attached.
+5. Run all cells. The transcript is written to `/kaggle/working`.
+
 ## Optional: Extract Audio Manually
 
-The Python program can process the video directly. FFmpeg extracts the audio internally.
-
-To manually create a WAV audio file:
-
-```bash
-ffmpeg \
-  -i "input/your-video.mp4" \
-  -vn \
-  -ac 1 \
-  -ar 16000 \
-  "output/your-video.wav"
-```
-
-Then transcribe the extracted audio:
-
-```bash
-python transcribe.py "output/your-video.wav" --model small
-```
-
-To create a smaller MP3 file:
+The transcriber already converts to a temporary MP3. To make that file yourself:
 
 ```bash
 ffmpeg \
@@ -371,8 +373,14 @@ ffmpeg \
   -ac 1 \
   -ar 16000 \
   -c:a libmp3lame \
-  -b:a 48k \
+  -b:a 64k \
   "output/your-video.mp3"
+```
+
+Then transcribe the MP3:
+
+```bash
+python transcribe.py "output/your-video.mp3" --model small
 ```
 
 ## Run Whisper Directly
